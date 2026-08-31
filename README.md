@@ -7,6 +7,8 @@
 The built-in `@deepseek-ai/dsh-mcp-client` only accepts a static `headers` config — it has no OAuth support and no local stdio transport. This plugin fills that gap:
 
 - **OAuth (authorization code + PKCE)** with RFC 7591 dynamic client registration, `refresh_token` rotation, and auto-reconnect across restarts — one browser login, then it keeps working.
+- **`resource` parameter (RFC 8707)**: OAuth authorization and token requests carry the resource indicator when one is declared — an explicit value from the server config wins, otherwise it is auto-discovered from the authorization-server metadata (RFC 8414) or `/.well-known/oauth-protected-resource` (RFC 9728).
+- **Pre-registered client id**: providers without RFC 7591 dynamic registration (e.g. some self-hosted Casdoor setups) can fill the client id manually in Settings → MCP — dynamic client registration is then skipped entirely.
 - **Static Bearer token** mode for servers without OAuth — stored as an environment-variable **name** (Codex-style `tokenEnv`), never as plaintext in the config.
 - **Custom HTTP headers** (`headers` for direct values, `headerEnv` for values read from environment variables) — matches Codex's `http_headers` / `env_http_headers`.
 - **stdio local processes**: run `npx` / `uvx` / `python` etc. directly; the plugin speaks JSON-RPC over the child's stdin/stdout (spawns the process, reconnects, and reaps it on exit) — no remote server or auth required. Windows `.cmd` shims (e.g. `npx.cmd`) are resolved through `cmd.exe`.
@@ -37,9 +39,9 @@ Then restart `dsh --profile web` and refresh the page. The package declares a `d
 1. Open **Settings → MCP** in the DSH web UI.
 2. **＋ Add MCP server** (and later **编辑 / Edit** to change it):
    - **Scope (作用域)**: `user` — a global server available in every workspace; or `workspace` — a server bound to one workspace (its config lives in that workspace's `.dsh/dshmm/mcp.json`). Pick the workspace from the second dropdown.
-   - **HTTP**: name (becomes the `mcp__<name>__*` prefix), URL, auth mode (OAuth or static token), and optional headers (`headers` direct values, `headerEnv` values read from env vars).
+   - **HTTP**: name (becomes the `mcp__<name>__*` prefix), URL, auth mode (OAuth or static token), and optional headers (`headers` direct values, `headerEnv` values read from env vars). OAuth servers accept an optional `clientId` (a pre-registered public client — skips dynamic registration), an optional `scope` (OAuth permission scope, e.g. `read write`), and an optional `resource` (RFC 8707 resource indicator); leave `resource` blank to auto-discover.
    - **stdio**: name, command (e.g. `npx`), args (one per row), env vars (key/value rows), and optional working directory.
-3. OAuth servers: click **去认证 (Authenticate)** → the browser opens the server's login page → after consent you are redirected back and the tools are registered immediately.
+3. OAuth servers: click **去认证 (Authenticate)** → a small popup opens the server's login page → after consent the callback page auto-closes (~1.5s) and the tools are registered immediately (falls back to a new tab if the browser blocks popups).
 4. Static-token servers: enter the **name of an environment variable** that holds the token (e.g. `MCP_BEARER_TOKEN`) — the token itself is never written to disk; stdio servers spawn and connect immediately on save.
 5. Optional: turn on **On-demand MCP tool calls** at the top of the page. The setting is profile-wide, persists across restarts, and affects existing sessions on their next request.
 
@@ -91,7 +93,7 @@ Global servers (added in **Settings → MCP**) are visible in every workspace. U
 | Piece | Mechanism |
 |---|---|
 | Settings page | Client half registers a `settings.section` slot entry (MCP tab) |
-| OAuth flow | Host half does dynamic client registration + PKCE; the redirect lands on a route mounted on the DSH GUI webserver itself |
+| OAuth flow | Host half discovers the real authorization server via `/.well-known/oauth-protected-resource` (`authorization_servers`, RFC 9728) before reading its metadata, then does dynamic client registration + PKCE (skipped when a `clientId` is pre-registered in the config); the authorization request carries the configured `scope` and the `resource` indicator when declared (config override, else auto-discovered, RFC 8707); the redirect lands on a route mounted on the DSH GUI webserver itself |
 | Token storage | `~/.dsh/mcp-manager.json`; OAuth tokens refreshed automatically on 401. Static tokens are read from the environment variable named by `tokenEnv` — never persisted |
 | MCP transport (HTTP) | Streamable HTTP (JSON-RPC over POST, `Mcp-Session-Id`, SSE or JSON responses); custom `headers`/`headerEnv` merged into every request |
 | MCP transport (stdio) | `child_process.spawn` a local command, JSON-RPC over stdin/stdout (newline-delimited); reconnect reaps the old process first. On Windows it spawns through `cmd.exe` so `.cmd` shims resolve |
@@ -107,7 +109,7 @@ Global servers (added in **Settings → MCP**) are visible in every workspace. U
 - On-demand filtering currently targets DSH's default `native` presentation. Agents using `code` or `both` keep the full MCP catalog to avoid advertising an incomplete generated SDK or blocking valid Code Mode sub-dispatches.
 - OAuth tokens live in a plain JSON file under `~/.dsh` — treat the file as a secret. Static bearer tokens and `headerEnv` values are read from environment variables and never persisted. Workspace OAuth tokens live in the same state file, never in the workspace's `mcp.json`.
 - stdio servers run as long-lived child processes tied to the plugin lifecycle. On POSIX `args` are whitespace-tokenized (quotes protect args with spaces) with no shell expansion; on Windows the command line is passed to `cmd.exe`, so shell metacharacters (`&`, `|`, `>`, `%VAR%`) are interpreted — prefer absolute paths and quote args containing spaces there.
-- One OAuth client registration per server per GUI origin; moving the GUI to a new origin re-registers automatically on the next login.
+- One OAuth client registration per server per GUI origin; moving the GUI to a new origin re-registers automatically on the next login. A manually pre-registered `clientId` bypasses registration — make sure the redirect URI you configured at the provider exactly matches `http://127.0.0.1:<port>/mcp-manager/callback/<id>` (public clients only, no `client_secret`).
 
 ## License
 

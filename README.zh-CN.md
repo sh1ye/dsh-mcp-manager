@@ -7,6 +7,8 @@
 内置的 `@deepseek-ai/dsh-mcp-client` 只接受静态 `headers` 配置——不支持 OAuth，也不支持本地 stdio 进程。本插件补上这块：
 
 - **OAuth（授权码 + PKCE）**：RFC 7591 动态客户端注册、`refresh_token` 自动轮换、重启后自动重连——浏览器登录一次，之后一直可用。
+- **`resource` 参数（RFC 8707）**：OAuth 授权与令牌请求携带资源指示符——优先用服务器配置里显式填写的值，否则自动从授权服务器元数据（RFC 8414）或 `/.well-known/oauth-protected-resource`（RFC 9728）发现。
+- **手动预注册 client id**：不支持 RFC 7591 动态注册的提供方（如部分自建 Casdoor）可在设置页手动填 client id——填了之后完全跳过动态客户端注册。
 - **静态 Bearer Token** 模式：适配没有 OAuth 的服务器——以环境变量**名称**（Codex 风格 `tokenEnv`）引用，token 明文不落盘。
 - **自定义 HTTP 标头**：`headers`（直接值）+ `headerEnv`（值取自环境变量），对齐 Codex 的 `http_headers` / `env_http_headers`。
 - **stdio 本地进程**：直接跑 `npx` / `uvx` / `python` 等命令，插件用 JSON-RPC over stdin/stdout 与之通信（自动拉起子进程、重连、退出时回收），无需任何远程服务器或认证。Windows 的 `.cmd` shim（如 `npx.cmd`）通过 `cmd.exe` 解析。
@@ -37,9 +39,9 @@ npx -p @deepseek-ai/dsh dsh plugin --profile web add github:hyqhyq3/dsh-mcp-mana
 1. 打开 DSH Web UI 的 **设置 → MCP**。
 2. **＋ 添加 MCP 服务器**（之后可用 **编辑** 修改）：
    - **作用域 Scope**：`user` = 全局服务器（所有工作区可用）；`workspace` = 绑定到某个工作区（配置写入该工作区的 `.dsh/dshmm/mcp.json`），从第二个下拉框选择工作区。
-   - **HTTP**：名称（决定 `mcp__<name>__*` 前缀）、URL、认证方式（OAuth 或静态 token）、可选标头（`headers` 直接值、`headerEnv` 值取自环境变量）。
+   - **HTTP**：名称（决定 `mcp__<name>__*` 前缀）、URL、认证方式（OAuth 或静态 token）、可选标头（`headers` 直接值、`headerEnv` 值取自环境变量）；OAuth 服务器可填可选 `clientId`（预注册的 public client，填了跳过动态注册）、可选 `scope`（OAuth 权限范围，如 `read write`）与可选 `resource`（RFC 8707 资源标识，留空则自动发现）。
    - **stdio**：名称、命令（如 `npx`）、参数（逐行填写）、环境变量（键/值逐行）、可选工作目录。
-3. OAuth 服务器：点 **去认证** → 浏览器打开登录页 → 同意授权后跳回，工具立即注册。
+3. OAuth 服务器：点 **去认证** → 弹出小窗口打开登录页 → 同意授权后回调页约 1.5 秒自动关闭，工具立即注册，无需手动返回（浏览器拦截弹窗时自动退回新标签页方式）。
 4. 静态 token 服务器：填写**存放 token 的环境变量名**（如 `MCP_BEARER_TOKEN`）——token 本身不写入磁盘；stdio 服务器保存后立即拉起本地进程并连接。
 5. 可选：打开页面顶部的**按需 MCP 工具调用**。该开关对整个 profile 生效，重启后保持，并在现有会话的下一次请求开始生效。
 
@@ -91,7 +93,7 @@ mcp__odin__execute_tool     mcp__odin__list_tool_scopes
 | 组成 | 机制 |
 |---|---|
 | 设置页 | client 半注册 `settings.section` 槽位（MCP 页签） |
-| OAuth 流程 | host 半做动态客户端注册 + PKCE；重定向落在 DSH GUI webserver 自身挂载的路由上 |
+| OAuth 流程 | host 半先经 `/.well-known/oauth-protected-resource` 的 `authorization_servers`（RFC 9728）定位真实授权服务器，再读其元数据；随后做动态客户端注册 + PKCE（配置里预注册了 `clientId` 则跳过注册）；授权请求携带配置的 `scope` 与 `resource` 指示符（RFC 8707）；重定向落在 DSH GUI webserver 自身挂载的路由上 |
 | Token 存储 | `~/.dsh/mcp-manager.json`；OAuth token 401 时自动刷新。静态 token 从 `tokenEnv` 指定的环境变量读取，不落盘 |
 | MCP 传输（HTTP） | Streamable HTTP（POST JSON-RPC、`Mcp-Session-Id`、SSE/JSON 双格式响应）；每次请求合并自定义 `headers`/`headerEnv` |
 | MCP 传输（stdio） | `child_process.spawn` 拉起本地命令，JSON-RPC over stdin/stdout（换行分隔），重连时先回收旧进程。Windows 下经 `cmd.exe` 启动以解析 `.cmd` shim |
@@ -107,7 +109,7 @@ mcp__odin__execute_tool     mcp__odin__list_tool_scopes
 - 按需过滤目前只支持 DSH 默认的 `native` 工具呈现模式。使用 `code` 或 `both` 的 agent 会保留完整 MCP 目录，避免生成式 SDK 不完整或误拦截 Code Mode 子调用。
 - OAuth token 明文存于 `~/.dsh` 下的 JSON 文件——请当作机密对待。静态 token 与 `headerEnv` 的值从环境变量读取，不落盘。工作区 OAuth token 也存于同一状态文件，不写进工作区的 `mcp.json`。
 - stdio 服务器以子进程常驻运行，随插件生命周期存活。POSIX 下 `args` 按空格分词（引号可保护含空格的参数），不含 shell 展开；Windows 下整条命令行交给 `cmd.exe`，`&`、`|`、`>`、`%VAR%` 等会被 shell 解释——建议使用绝对路径并为含空格的参数加引号。
-- 每个 GUI origin 一次 OAuth 客户端注册；GUI 换地址后下次登录会自动重新注册。
+- 每个 GUI origin 一次 OAuth 客户端注册；GUI 换地址后下次登录会自动重新注册。手动预注册的 `clientId` 会跳过注册——务必确保在提供方配置的回调地址与 `http://127.0.0.1:<port>/mcp-manager/callback/<id>` 完全一致（仅支持无 `client_secret` 的 public client）。
 
 ## License
 
