@@ -27,7 +27,7 @@ The built-in `@deepseek-ai/dsh-mcp-client` only accepts a static `headers` confi
 ## Install
 
 ```sh
-npx -p @deepseek-ai/dsh dsh plugin --profile web add github:hyqhyq3/dsh-mcp-manager
+npx -p @deepseek-ai/dsh dsh plugin --profile web add github:sh1ye/dsh-mcp-manager
 ```
 
 Then restart `dsh --profile web` and refresh the page. The package declares a `dsh.bundle.patch`, so the plugin activates automatically — no manual `cordis.patch.yml` editing.
@@ -100,7 +100,7 @@ Global servers (added in **Settings → MCP**) are visible in every workspace. U
 | Tool schema | Server JSON Schemas are sanitized to the registry's supported raw subset (unsupported vocabulary degrades to unconstrained) |
 | On-demand broker | A profile setting installs three broker tools, filters raw `mcp__*` schemas after prompt assembly, and guards execution so only `mcp_execute_tool` may dispatch a hidden MCP tool |
 | Tool list changes | stdio notifications and the Streamable HTTP SSE channel refresh the live `tools/list`; unchanged registrations remain mounted |
-| Workspace isolation | `agents.create`/`resume` are decorated to compose a per-agent setup that registers `<workspace>/.dsh/dshmm/mcp.json` tools into the agent scope and applies `tools.restrict({ deny })` for `exclude` |
+| Workspace isolation | `agents.create`/`resume` are decorated (the registry is read lazily through `ctx.get('agents')`, so it stays optional) to compose a per-agent setup — signature `(agentCtx, agent)`, both arguments forwarded verbatim to the caller's own setup — that registers `<workspace>/.dsh/dshmm/mcp.json` tools into the agent scope and applies `tools.restrict({ deny })` for `exclude` |
 | Hot path | Same-origin JSON API under `/mcp-manager/api/*` between the settings page and the host half |
 
 ## Limitations

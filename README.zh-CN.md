@@ -27,7 +27,7 @@
 ## 安装
 
 ```sh
-npx -p @deepseek-ai/dsh dsh plugin --profile web add github:hyqhyq3/dsh-mcp-manager
+npx -p @deepseek-ai/dsh dsh plugin --profile web add github:sh1ye/dsh-mcp-manager
 ```
 
 重启 `dsh --profile web` 并刷新页面。包内声明了 `dsh.bundle.patch`，插件自动激活——无需手动改 `cordis.patch.yml`。
@@ -100,7 +100,7 @@ mcp__odin__execute_tool     mcp__odin__list_tool_scopes
 | 工具 schema | 服务器 JSON Schema 清洗为注册表支持的 raw 子集（不支持的关键字降级为无约束） |
 | 按需 broker | Profile 开关注册三个 broker 工具，在提示词组装后过滤原始 `mcp__*` schema，并用执行守卫确保只有 `mcp_execute_tool` 能调用隐藏工具 |
 | 工具列表变化 | stdio 通知与 Streamable HTTP SSE 通道触发重新读取 `tools/list`；未变化的注册保持挂载 |
-| 工作区隔离 | 装饰 `agents.create`/`resume`，组合出 per-agent setup：把 `<workspace>/.dsh/dshmm/mcp.json` 的工具注册进 agent 作用域，并按 `exclude` 应用 `tools.restrict({ deny })` |
+| 工作区隔离 | 装饰 `agents.create`/`resume`（注册表经 `ctx.get('agents')` 懒读，保持可选依赖），组合出 per-agent setup——签名为 `(agentCtx, agent)`，并把两个参数原样转发给调用方自己的 setup：把 `<workspace>/.dsh/dshmm/mcp.json` 的工具注册进 agent 作用域，并按 `exclude` 应用 `tools.restrict({ deny })` |
 | 交互通道 | 设置页与 host 半之间走同源 JSON API（`/mcp-manager/api/*`） |
 
 ## 已知限制
